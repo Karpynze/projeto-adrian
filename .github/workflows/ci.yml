@@ -23,6 +23,11 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Verify Node.js version
+        run: |
+          node --version
+          npm --version
+
       - name: Install dependencies
         working-directory: ./app
         shell: powershell
