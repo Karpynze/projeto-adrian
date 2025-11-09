@@ -23,8 +23,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '18' # travar Node
           cache: 'npm'
+
+      - name: Kill Node processes (Windows fix)
+        run: |
+          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Clean node_modules and npm cache
+        run: |
+          Remove-Item -Recurse -Force ./node_modules -ErrorAction SilentlyContinue
+          npm cache clean --force
 
       - name: Install dependencies
         run: npm ci
@@ -32,12 +41,12 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Set image tag
-        id: vars
+      - name: Build Docker image tags
         run: |
-          $env:FULL_SHA = "${{ github.sha }}"
-          $env:TAG_SHA = $env:FULL_SHA.Substring(0,7)
-          $env:IMAGE = "jlkarpyn/projeto"
+          $FULL_SHA = "${{ github.sha }}"
+          $TAG_SHA = $FULL_SHA.Substring(0,7)
+          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Log in to DockerHub
         uses: docker/login-action@v2
@@ -47,6 +56,12 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          docker build -t $env:IMAGE:latest -t $env:IMAGE:$env:TAG_SHA .
-          docker push $env:IMAGE:latest
-          docker push $env:IMAGE:$env:TAG_SHA
+          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }} .
+          docker push jlkarpyn/projeto:latest
+          docker push jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }}
+
+      - name: Upload image info
+        uses: actions/upload-artifact@v3
+        with:
+          name: image-info
+          path: ${{ github.workspace }}/image-tags.txt
