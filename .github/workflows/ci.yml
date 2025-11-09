@@ -25,24 +25,34 @@ jobs:
 
       - name: Install dependencies
         run: |
+          if (Test-Path node_modules) {
+              Write-Host "Removendo node_modules antigo..."
+              Remove-Item -Recurse -Force node_modules
+          }
           if (Test-Path package-lock.json) {
+              Write-Host "Rodando npm ci..."
               npm ci
           } else {
+              Write-Host "Rodando npm install..."
               npm install
           }
         shell: powershell
 
-      - name: Run tests (se tiver)
+      - name: Run tests (opcional)
         run: |
-          $scripts = npm run | Select-String " test"
-          if ($scripts) { npm test } else { Write-Host "Sem script de teste. Pulando etapa." }
+          $scripts = npm run
+          if ($scripts -match " test") {
+              npm test
+          } else {
+              Write-Host "Sem script de teste. Pulando etapa."
+          }
         shell: powershell
 
       - name: Set image tags
         id: vars
         run: |
-          echo "IMAGE=seuusuario/monitor" >> $env:GITHUB_ENV
-          echo "TAG_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+          echo "IMAGE=seuusuario/monitor" >> $GITHUB_OUTPUT
+          echo "TAG_SHA=${GITHUB_SHA.Substring(0,7)}" >> $GITHUB_OUTPUT
         shell: powershell
 
       - name: Setup QEMU
@@ -64,7 +74,7 @@ jobs:
           file: ./dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ env.TAG_SHA }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+            ${{ steps.vars.outputs.IMAGE }}:latest
+            ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}
+          cache-from: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache,mode=max
