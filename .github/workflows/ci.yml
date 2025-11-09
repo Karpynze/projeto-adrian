@@ -21,11 +21,11 @@ jobs:
 
       # 3️⃣ Instalar dependências
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      # 4️⃣ Build da aplicação
-      - name: Build app
-        run: npm run build
+      # 4️⃣ Rodar testes (opcional)
+      - name: Run tests
+        run: npm test
 
       # 5️⃣ Set Docker tags
       - name: Set Docker tags
