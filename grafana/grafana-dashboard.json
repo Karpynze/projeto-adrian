@@ -1,0 +1,27 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Dashboard Node.js Metrics",
+    "panels": [
+      {
+        "type": "graph",
+        "title": "Requisições Totais",
+        "targets": [
+          {
+            "expr": "app_requests_total",
+            "legendFormat": "{{instance}}",
+            "refId": "A"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "yaxis": {
+          "format": "short"
+        }
+      }
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  }
+}

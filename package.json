@@ -1,0 +1,13 @@
+{
+  "name": "meu-projeto",
+  "version": "1.0.0",
+  "description": "Aplicação Node.js para teste com Prometheus, Grafana e NGINX",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "prom-client": "^15.1.3"
+  }
+}
