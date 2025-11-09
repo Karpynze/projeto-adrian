@@ -2,56 +2,79 @@ name: CI - Build & Push Docker
 
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build:
+  ci:
     runs-on: self-hosted
-    outputs:
-      IMAGE: ${{ steps.set-vars.outputs.IMAGE }}
-      TAG_SHA: ${{ steps.set-vars.outputs.TAG_SHA }}
-
-    defaults:
-      run:
-        shell: powershell
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: "20"
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build Docker image
-        id: set-vars
         run: |
-          $FULL_SHA = "${{ github.sha }}"
-          $TAG_SHA = $FULL_SHA.Substring(0,7)
-          $IMAGE = "jlkarpyn/projeto"
-          echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Log in to DockerHub
-        uses: docker/login-action@v2
+      - name: Run tests (if exists)
+        run: |
+          if npm run | grep -q " test"; then
+            npm test
+          else
+            echo "No test script found. Skipping."
+          fi
+
+      # Optional: linters
+      # - name: Lint
+      #   run: |
+      #     if npm run | grep -q " lint"; then
+      #       npm run lint
+      #     else
+      #       echo "No lint script found. Skipping."
+      #     fi
+
+      - name: Set image tags
+        id: vars
+        run: |
+          echo "IMAGE=seuusuario/monitor" >> $GITHUB_OUTPUT
+          echo "TAG_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+          
 
-      - name: Build and push Docker image
-        run: |
-          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.set-vars.outputs.TAG_SHA }} .
-          docker push jlkarpyn/projeto:latest
-          docker push jlkarpyn/projeto:${{ steps.set-vars.outputs.TAG_SHA }}
+      - name: Build & Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dockerfile
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.IMAGE }}:latest
+            ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}
+          cache-from: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache,mode=max
