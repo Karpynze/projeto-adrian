@@ -2,38 +2,103 @@ name: CD - Deploy to Minikube
 
 on:
   workflow_run:
-    workflows: ["CI - Build & Test"]
+    workflows: ["CI - Build & Push Docker"]
     types:
       - completed
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
-    runs-on: [self-hosted, windows]
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, windows]
+  
+
+    defaults:
+      run:
+        shell: powershell
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download image tags from CI
-        uses: actions/download-artifact@v3
-        with:
-          name: image-tags
+      # Diagnóstico
+      - name: Diagnose shell
+        run: |
+          Write-Host "Shell diagnostic:"
+          Write-Host "PSVersion: $($PSVersionTable.PSVersion)"
+          Write-Host "Runner OS: $env:RUNNER_OS"
+          Write-Host "UserProfile: $env:USERPROFILE"
 
+      # Define variáveis
+      - name: Set vars
+        id: vars
+        run: |
+          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $FULL_SHA = "${{ github.event.workflow_run.head_sha }}"
+          "TAG_SHA=$($FULL_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $nsSecret = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($nsSecret)) { $nsSecret = "default" }
+          "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      # Start Minikube
       - name: Start Minikube
-        shell: pwsh
         run: |
           minikube start --driver=docker
           kubectl get nodes
 
+      # Load Docker image
       - name: Load Docker image into Minikube
-        shell: pwsh
         run: |
-          docker pull $env:IMAGE:$env:TAG_SHA
-          minikube image load $env:IMAGE:$env:TAG_SHA
+          docker pull "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
+          minikube image load "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
 
-      - name: Deploy app to Minikube
-        shell: pwsh
+      # Namespace
+      - name: Create namespace if not exists
         run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl rollout status deployment/my-app
+          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl get ns $ns 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Namespace '$ns' não existe, criando..."
+            kubectl create ns $ns
+          } else {
+            Write-Host "Namespace '$ns' já existe."
+          }
+
+      # Base manifests
+      - name: Apply base manifests
+        run: |
+          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl apply -n $ns -f k8s/service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-deployment.yaml
+          kubectl apply -n $ns -f k8s/grafana-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-config.yaml
+          Write-Host "Manifests base aplicados."
+
+      # App deployment
+      - name: Apply app deployment
+        run: |
+          kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
+          Write-Host "App deployment aplicado."
+
+      # Atualiza imagem
+      - name: Set image to new tag
+        run: |
+          $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
+          kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
+          Write-Host "Atualizando imagem para $image"
+
+      # Rollout
+      - name: Wait rollout
+        run: |
+          kubectl rollout status deployment/monitor -n "${{ steps.vars.outputs.NAMESPACE }}" --timeout=120s
+          Write-Host "Rollout concluído."
+
+      # Debug
+      - name: Show services
+        run: |
+          kubectl get svc -n "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl get pods -o wide -n "${{ steps.vars.outputs.NAMESPACE }}"
