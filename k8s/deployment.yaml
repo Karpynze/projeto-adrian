@@ -1,9 +1,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: monitor
-  labels:
-    app: monitor
+  name: monitor   # <- ESTE É O NOME DO SEU DEPLOYMENT, não pode estar vazio
+  namespace: default   # opcional, mas bom definir
 spec:
   replicas: 1
   selector:
@@ -15,16 +14,7 @@ spec:
         app: monitor
     spec:
       containers:
-        - name: monitor
-          image: jlkarpyn/monitor:latest
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 3000
-          env:
-            - name: PORT
-              value: "3000"
-            - name: NODE_ENV
-              value: "production"
-            # Exemplo de variável adicional
-            # - name: PROMETHEUS_ENDPOINT
-            #   value: "/metrics"
+      - name: monitor
+        image: seuusuario/monitor:latest
+        ports:
+        - containerPort: 3000
