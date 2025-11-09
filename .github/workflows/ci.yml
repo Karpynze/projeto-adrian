@@ -28,6 +28,13 @@ jobs:
           node --version
           npm --version
 
+      - name: Verify app directory exists
+        run: |
+          Write-Host "Conteúdo do diretório pai:"
+          dir C:\Users\josel\OneDrive\Desktop\runner-new\_work\projeto-adrian\projeto-adrian
+          Write-Host "Conteúdo do diretório ./app:"
+          dir ./app
+
       - name: Install dependencies
         working-directory: ./app
         shell: powershell
