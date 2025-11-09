@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   ci:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -23,49 +23,36 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Verify Node.js version
-        run: |
-          node --version
-          npm --version
-
-      - name: Verify app directory exists
-        run: |
-          Write-Host "Conteúdo do diretório pai:"
-          dir C:\Users\josel\OneDrive\Desktop\runner-new\_work\projeto-adrian\projeto-adrian
-          Write-Host "Conteúdo do diretório ./app:"
-          dir ./app
-
       - name: Install dependencies
-        working-directory: ./app
-        shell: powershell
         run: |
-          # Verifique o diretório atual para garantir que estamos no lugar certo
-          Write-Host "Diretório atual: $(Get-Location)"
-          
-          # Verifique se o arquivo package-lock.json existe
-          if (Test-Path "$PWD/package-lock.json") {
+          if [ -f package-lock.json ]; then
             npm ci
-          } else {
+          else
             npm install
-          }
+          fi
 
       - name: Run tests (se tiver)
-        working-directory: ./app
-        shell: powershell
         run: |
-          $scripts = npm run | Select-String " test"
-          if ($scripts) {
+          if npm run | grep -q " test"; then
             npm test
-          } else {
-            Write-Host "Sem script de teste. Pulando etapa."
-          }
+          else
+            echo "Sem script de teste. Pulando etapa."
+          fi
+
+      # Opcional: linters
+      # - name: Lint
+      #   run: |
+      #     if npm run | grep -q " lint"; then
+      #       npm run lint
+      #     else
+      #       echo "Sem script lint. Pulando."
+      #     fi
 
       - name: Set image tags
         id: vars
-        shell: powershell
         run: |
-          Write-Output "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Output "TAG_SHA=$($env:GITHUB_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          echo "IMAGE=jlkarpyn/projeto" >> $GITHUB_OUTPUT
+          echo "TAG_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
@@ -82,8 +69,8 @@ jobs:
       - name: Build & Push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ./app
-          file: ./app/Dockerfile
+          context: .
+          file: ./Dockerfile
           push: true
           tags: |
             ${{ steps.vars.outputs.IMAGE }}:latest
