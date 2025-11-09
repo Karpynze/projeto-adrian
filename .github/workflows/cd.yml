@@ -25,15 +25,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: image-tags
+          path: .
 
       - name: Set deployment variables
+        id: vars
         run: |
-          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          $FULL_SHA = "${{ github.event.workflow_run.head_sha }}"
-          "TAG_SHA=$($FULL_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $imageTag = Get-Content .\image-tags.txt
+          $parts = $imageTag -split ':'
+          $IMAGE = $parts[0]
+          $TAG_SHA = $parts[1]
           $nsSecret = "${{ secrets.K8S_NAMESPACE }}"
           if ([string]::IsNullOrWhiteSpace($nsSecret)) { $nsSecret = "default" }
-          "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4

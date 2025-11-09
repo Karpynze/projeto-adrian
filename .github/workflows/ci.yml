@@ -33,11 +33,15 @@ jobs:
         run: npm test
 
       - name: Build Docker image
+        id: build
         run: |
           $FULL_SHA = "${{ github.sha }}"
           $TAG_SHA = $FULL_SHA.Substring(0,7)
-          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $IMAGE = "jlkarpyn/projeto"
+          echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          # salva arquivo de tags para o CD
+          "$IMAGE:$TAG_SHA" | Out-File -FilePath image-tags.txt
 
       - name: Log in to DockerHub
         uses: docker/login-action@v2
@@ -55,4 +59,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: image-tags
-          path: ${{ github.workspace }}/image-tags.txt
+          path: image-tags.txt
