@@ -17,27 +17,22 @@ jobs:
         shell: powershell
 
     steps:
-      # 1️⃣ Clona o repositório
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Configura Node.js travado na versão 18
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
-      # 3️⃣ Instala dependências
       - name: Install dependencies
         run: npm install
 
-      # 4️⃣ Executa testes (mesmo que sejam apenas de placeholder)
       - name: Run tests
         run: npm test
 
-      # 5️⃣ Define variáveis de imagem e tag
-      - name: Define image and tag
+      - name: Set image vars
         id: vars
         run: |
           $FULL_SHA = "${{ github.sha }}"
@@ -45,21 +40,25 @@ jobs:
           "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      # 6️⃣ Faz login no Docker Hub (certifique-se que os segredos estão definidos)
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 7️⃣ Constrói e envia as imagens pro Docker Hub
       - name: Build and push Docker image
         run: |
           docker build -t ${{ steps.vars.outputs.IMAGE }}:latest -t ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }} .
           docker push ${{ steps.vars.outputs.IMAGE }}:latest
           docker push ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}
 
-      # 8️⃣ Salva as tags da imagem para o pipeline de CD
+      - name: Save image tag info
+        run: |
+          echo "IMAGE=${{ steps.vars.outputs.IMAGE }}" > image-tags.txt
+          echo "TAG_SHA=${{ steps.vars.outputs.TAG_SHA }}" >> image-tags.txt
+          Write-Host "Conteúdo do image-tags.txt:"
+          Get-Content image-tags.txt
+
       - name: Upload image tags
         uses: actions/upload-artifact@v4
         with:

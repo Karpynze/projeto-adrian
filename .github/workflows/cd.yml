@@ -12,45 +12,34 @@ jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
-    #environment: production
 
     defaults:
       run:
         shell: powershell
 
     steps:
-      # 1️⃣ Checkout do código
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Baixa o artifact gerado pelo CI (imagem e tag)
       - name: Download image tags from CI
         uses: actions/download-artifact@v4
         with:
           name: image-tags
 
-      # 3️⃣ Lê variáveis do arquivo baixado
-      - name: Read image tags
+      - name: Load deployment variables
         id: vars
         run: |
-          $content = Get-Content "image-tags.txt" | Out-String
-          Write-Host "Conteúdo de image-tags.txt:"
-          Write-Host $content
-          foreach ($line in Get-Content "image-tags.txt") {
-            if ($line -match "^(.*?)=(.*)$") {
-              $key = $matches[1]
-              $val = $matches[2]
-              "$key=$val" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            }
+          $vars = Get-Content "image-tags.txt" | ForEach-Object {
+            $k,$v = $_ -split "=",2
+            Set-Content -Path env:\$k -Value $v
           }
+          echo "Usando imagem: $env:IMAGE:$env:TAG_SHA"
 
-      # 4️⃣ Configura kubectl
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
           version: 'latest'
 
-      # 5️⃣ Configura kubeconfig
       - name: Configure kubeconfig
         run: |
           $kubeDir = Join-Path $env:USERPROFILE ".kube"
@@ -65,45 +54,27 @@ jobs:
           }
           "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # 6️⃣ Cria o namespace se ainda não existir
-      - name: Create namespace if not exists
-        run: |
-          $ns = "${{ secrets.K8S_NAMESPACE }}"
-          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
-          kubectl get ns $ns 2>$null
-          if ($LASTEXITCODE -ne 0) { kubectl create ns $ns }
-          "NAMESPACE=$ns" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      # 7️⃣ Aplica os manifests base
       - name: Apply base manifests
         run: |
-          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
-          kubectl apply -n $ns -f k8s/service.yaml
-          kubectl apply -n $ns -f k8s/prometheus-deployment.yaml
-          kubectl apply -n $ns -f k8s/grafana-deployment.yaml
-          kubectl apply -n $ns -f k8s/nginx-deployment.yaml
-          kubectl apply -n $ns -f k8s/nginx-service.yaml
-          kubectl apply -n $ns -f k8s/prometheus-config.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/prometheus-deployment.yaml
+          kubectl apply -f k8s/grafana-deployment.yaml
+          kubectl apply -f k8s/nginx-deployment.yaml
+          kubectl apply -f k8s/nginx-service.yaml
+          kubectl apply -f k8s/prometheus-config.yaml
 
-      # 8️⃣ Aplica o deployment da aplicação
       - name: Apply app deployment
-        run: |
-          kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
+        run: kubectl apply -f k8s/deployment.yaml
 
-      # 9️⃣ Atualiza a imagem da aplicação com a nova tag
       - name: Update app image
         run: |
-          $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
-          kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
-          Write-Host "Atualizando imagem para $image"
+          kubectl set image deployment/monitor monitor=$env:IMAGE:$env:TAG_SHA
 
-      # 🔟 Aguarda o rollout
       - name: Wait rollout
         run: |
-          kubectl rollout status deployment/monitor -n "${{ steps.vars.outputs.NAMESPACE }}" --timeout=120s
+          kubectl rollout status deployment/monitor --timeout=120s
 
-      # 1️⃣1️⃣ Mostra informações (debug)
       - name: Show services
         run: |
-          kubectl get svc -n "${{ steps.vars.outputs.NAMESPACE }}"
-          kubectl get pods -o wide -n "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl get svc
+          kubectl get pods -o wide
