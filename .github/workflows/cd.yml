@@ -21,17 +21,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download image info from CI
+      - name: Download image tags from CI
         uses: actions/download-artifact@v4
         with:
-          name: image-info
-          path: ${{ github.workspace }}
+          name: image-tags
 
       - name: Set deployment variables
         run: |
-          $lines = Get-Content -Path "${{ github.workspace }}\image-tags.txt"
-          foreach ($line in $lines) { Set-Content -Path $env:GITHUB_OUTPUT -Value $line -Append }
-          if (-not $env:NAMESPACE) { $env:NAMESPACE = "default" }
+          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $FULL_SHA = "${{ github.event.workflow_run.head_sha }}"
+          "TAG_SHA=$($FULL_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $nsSecret = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($nsSecret)) { $nsSecret = "default" }
+          "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -45,41 +47,43 @@ jobs:
           $configPath = Join-Path $kubeDir "config"
           $raw = "${{ secrets.KUBE_CONFIG_DATA }}"
           try {
-              $bytes = [System.Convert]::FromBase64String($raw)
-              [System.IO.File]::WriteAllBytes($configPath, $bytes)
+            $bytes = [System.Convert]::FromBase64String($raw)
+            [System.IO.File]::WriteAllBytes($configPath, $bytes)
           } catch {
-              Set-Content -Path $configPath -Value $raw -Force
+            Set-Content -Path $configPath -Value $raw -Force
           }
           "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Create namespace if not exists
         run: |
-          kubectl get ns $env:NAMESPACE 2>$null
-          if ($LASTEXITCODE -ne 0) { kubectl create ns $env:NAMESPACE }
+          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl get ns $ns 2>$null
+          if ($LASTEXITCODE -ne 0) { kubectl create ns $ns }
 
       - name: Apply base manifests
         run: |
-          kubectl apply -n $env:NAMESPACE -f k8s/service.yaml
-          kubectl apply -n $env:NAMESPACE -f k8s/prometheus-deployment.yaml
-          kubectl apply -n $env:NAMESPACE -f k8s/grafana-deployment.yaml
-          kubectl apply -n $env:NAMESPACE -f k8s/nginx-deployment.yaml
-          kubectl apply -n $env:NAMESPACE -f k8s/nginx-service.yaml
-          kubectl apply -n $env:NAMESPACE -f k8s/prometheus-config.yaml
+          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl apply -n $ns -f k8s/service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-deployment.yaml
+          kubectl apply -n $ns -f k8s/grafana-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-config.yaml
 
       - name: Apply app deployment
         run: |
-          kubectl apply -n $env:NAMESPACE -f k8s/deployment.yaml
+          kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
 
       - name: Update app image
         run: |
-          $image = "$env:IMAGE:$env:TAG_SHA"
-          kubectl set image deployment/monitor monitor=$image -n $env:NAMESPACE
+          $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
+          kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
 
       - name: Wait rollout
         run: |
-          kubectl rollout status deployment/monitor -n $env:NAMESPACE --timeout=120s
+          kubectl rollout status deployment/monitor -n "${{ steps.vars.outputs.NAMESPACE }}" --timeout=120s
 
       - name: Show services
         run: |
-          kubectl get svc -n $env:NAMESPACE
-          kubectl get pods -o wide -n $env:NAMESPACE
+          kubectl get svc -n "${{ steps.vars.outputs.NAMESPACE }}"
+          kubectl get pods -o wide -n "${{ steps.vars.outputs.NAMESPACE }}"

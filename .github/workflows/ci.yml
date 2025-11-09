@@ -23,17 +23,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18' # travar Node
+          node-version: '18'
           cache: 'npm'
-
-      - name: Kill Node processes (Windows fix)
-        run: |
-          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
-
-      - name: Clean node_modules and npm cache
-        run: |
-          Remove-Item -Recurse -Force ./node_modules -ErrorAction SilentlyContinue
-          npm cache clean --force
 
       - name: Install dependencies
         run: npm ci
@@ -41,7 +32,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build Docker image tags
+      - name: Build Docker image
         run: |
           $FULL_SHA = "${{ github.sha }}"
           $TAG_SHA = $FULL_SHA.Substring(0,7)
@@ -60,8 +51,8 @@ jobs:
           docker push jlkarpyn/projeto:latest
           docker push jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }}
 
-      - name: Upload image info
-        uses: actions/upload-artifact@v3
+      - name: Upload image tags
+        uses: actions/upload-artifact@v4
         with:
-          name: image-info
+          name: image-tags
           path: ${{ github.workspace }}/image-tags.txt
