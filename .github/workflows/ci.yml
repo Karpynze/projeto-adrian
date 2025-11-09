@@ -2,9 +2,9 @@ name: CI - Build & Push Docker
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
 
 permissions:
   contents: read
@@ -12,56 +12,38 @@ permissions:
 
 jobs:
   ci:
-    name: Build & Push Docker
     runs-on: self-hosted
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install dependencies
-        shell: pwsh
         run: |
-          if (Test-Path "package-lock.json") {
-            npm ci
+          if (Test-Path package-lock.json) {
+              npm ci
           } else {
-            npm install
+              npm install
           }
+        shell: powershell
 
-      - name: Run tests (if any)
-        shell: pwsh
+      - name: Run tests (se tiver)
         run: |
-          $scripts = npm run
-          if ($scripts -match " test") {
-            npm test
-          } else {
-            Write-Host "No test script found, skipping."
-          }
-
-      # Optional: Lint
-      #- name: Lint
-      #  shell: pwsh
-      #  run: |
-      #    $scripts = npm run
-      #    if ($scripts -match " lint") {
-      #      npm run lint
-      #    } else {
-      #      Write-Host "No lint script found, skipping."
-      #    }
+          $scripts = npm run | Select-String " test"
+          if ($scripts) { npm test } else { Write-Host "Sem script de teste. Pulando etapa." }
+        shell: powershell
 
       - name: Set image tags
         id: vars
-        shell: pwsh
         run: |
-          $image = "seuusuario/monitor"
-          $tag = $env:GITHUB_SHA.Substring(0,7)
-          echo "IMAGE=$image" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "TAG_SHA=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "IMAGE=seuusuario/monitor" >> $env:GITHUB_ENV
+          echo "TAG_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_ENV
+        shell: powershell
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
@@ -75,7 +57,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push Docker image
+      - name: Build & Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
