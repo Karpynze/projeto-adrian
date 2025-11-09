@@ -1,4 +1,4 @@
-name: CD - Deploy to Minikube
+name: CD - Deploy to Kubernetes
 
 on:
   workflow_run:
@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, windows]
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: self-hosted
     #environment: production
 
     defaults:
@@ -22,8 +22,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set vars
-        id: vars
+      - name: Download image tags from CI
+        uses: actions/download-artifact@v3
+        with:
+          name: image-tags
+
+      - name: Set deployment variables
         run: |
           "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           $FULL_SHA = "${{ github.event.workflow_run.head_sha }}"
@@ -71,7 +75,7 @@ jobs:
         run: |
           kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
 
-      - name: Set image to new tag
+      - name: Update app image
         run: |
           $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
           kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
