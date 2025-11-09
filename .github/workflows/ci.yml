@@ -11,14 +11,13 @@ permissions:
 jobs:
   build:
     runs-on: self-hosted
+    outputs:
+      IMAGE: ${{ steps.set-vars.outputs.IMAGE }}
+      TAG_SHA: ${{ steps.set-vars.outputs.TAG_SHA }}
 
     defaults:
       run:
         shell: powershell
-
-    outputs:
-      IMAGE: ${{ steps.build.outputs.IMAGE }}
-      TAG_SHA: ${{ steps.build.outputs.TAG_SHA }}
 
     steps:
       - name: Checkout
@@ -37,7 +36,7 @@ jobs:
         run: npm test
 
       - name: Build Docker image
-        id: build
+        id: set-vars
         run: |
           $FULL_SHA = "${{ github.sha }}"
           $TAG_SHA = $FULL_SHA.Substring(0,7)
@@ -53,6 +52,6 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }} .
+          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.set-vars.outputs.TAG_SHA }} .
           docker push jlkarpyn/projeto:latest
-          docker push jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }}
+          docker push jlkarpyn/projeto:${{ steps.set-vars.outputs.TAG_SHA }}
