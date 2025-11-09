@@ -1,18 +1,18 @@
-name: CI - Build & Test
+name: CI - Build & Push Docker
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build-test:
-    runs-on: [self-hosted, windows]
+  ci:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -23,32 +23,48 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install deps
-        shell: pwsh
+      - name: Install dependencies
         run: |
-          if (Test-Path package-lock.json) {
-              npm ci
-          } else {
-              npm install
-          }
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Run tests (se tiver)
-        shell: pwsh
+      - name: Run tests (if exists)
         run: |
-          $scripts = npm run
-          if ($scripts -match " test") { npm test } else { Write-Host "Sem script de teste. Pulando etapa." }
+          if npm run | grep -q " test"; then
+            npm test
+          else
+            echo "No test script. Skipping."
+          fi
 
       - name: Set image tags
-        shell: pwsh
         id: vars
         run: |
-          echo "IMAGE=jlkarpyn/projeto" >> $env:GITHUB_OUTPUT
-          echo "TAG_SHA=$($env:GITHUB_SHA.Substring(0,7))" >> $env:GITHUB_OUTPUT
+          echo "IMAGE=jlkarpyn/projeto" >> $GITHUB_OUTPUT
+          echo "TAG_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Upload image tags for CD
-        uses: actions/upload-artifact@v3
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
-          name: image-tags
-          path: |
-            ${{ steps.vars.outputs.IMAGE }}
-            ${{ steps.vars.outputs.TAG_SHA }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.IMAGE }}:latest
+            ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}
+          cache-from: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ steps.vars.outputs.IMAGE }}:buildcache,mode=max

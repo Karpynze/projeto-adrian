@@ -3,17 +3,16 @@ name: CD - Deploy to Minikube
 on:
   workflow_run:
     workflows: ["CI - Build & Push Docker"]
-    types:
-      - completed
+    types: ["completed"]
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, windows]
-  
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    #environment: production
 
     defaults:
       run:
@@ -23,15 +22,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Diagnóstico
-      - name: Diagnose shell
-        run: |
-          Write-Host "Shell diagnostic:"
-          Write-Host "PSVersion: $($PSVersionTable.PSVersion)"
-          Write-Host "Runner OS: $env:RUNNER_OS"
-          Write-Host "UserProfile: $env:USERPROFILE"
-
-      # Define variáveis
       - name: Set vars
         id: vars
         run: |
@@ -42,31 +32,31 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($nsSecret)) { $nsSecret = "default" }
           "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      # Start Minikube
-      - name: Start Minikube
-        run: |
-          minikube start --driver=docker
-          kubectl get nodes
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
 
-      # Load Docker image
-      - name: Load Docker image into Minikube
+      - name: Configure kubeconfig
         run: |
-          docker pull "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
-          minikube image load "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
+          $kubeDir = Join-Path $env:USERPROFILE ".kube"
+          [System.IO.Directory]::CreateDirectory($kubeDir) | Out-Null
+          $configPath = Join-Path $kubeDir "config"
+          $raw = "${{ secrets.KUBE_CONFIG_DATA }}"
+          try {
+            $bytes = [System.Convert]::FromBase64String($raw)
+            [System.IO.File]::WriteAllBytes($configPath, $bytes)
+          } catch {
+            Set-Content -Path $configPath -Value $raw -Force
+          }
+          "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # Namespace
       - name: Create namespace if not exists
         run: |
           $ns = "${{ steps.vars.outputs.NAMESPACE }}"
           kubectl get ns $ns 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Namespace '$ns' não existe, criando..."
-            kubectl create ns $ns
-          } else {
-            Write-Host "Namespace '$ns' já existe."
-          }
+          if ($LASTEXITCODE -ne 0) { kubectl create ns $ns }
 
-      # Base manifests
       - name: Apply base manifests
         run: |
           $ns = "${{ steps.vars.outputs.NAMESPACE }}"
@@ -76,28 +66,20 @@ jobs:
           kubectl apply -n $ns -f k8s/nginx-deployment.yaml
           kubectl apply -n $ns -f k8s/nginx-service.yaml
           kubectl apply -n $ns -f k8s/prometheus-config.yaml
-          Write-Host "Manifests base aplicados."
 
-      # App deployment
       - name: Apply app deployment
         run: |
           kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
-          Write-Host "App deployment aplicado."
 
-      # Atualiza imagem
       - name: Set image to new tag
         run: |
           $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
           kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
-          Write-Host "Atualizando imagem para $image"
 
-      # Rollout
       - name: Wait rollout
         run: |
           kubectl rollout status deployment/monitor -n "${{ steps.vars.outputs.NAMESPACE }}" --timeout=120s
-          Write-Host "Rollout concluído."
 
-      # Debug
       - name: Show services
         run: |
           kubectl get svc -n "${{ steps.vars.outputs.NAMESPACE }}"
