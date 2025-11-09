@@ -3,7 +3,7 @@ name: CD - Deploy to Kubernetes
 on:
   workflow_run:
     workflows: ["CI - Build & Push Docker"]
-    types: ["completed"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -21,24 +21,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download image tags from CI
-        uses: actions/download-artifact@v4
-        with:
-          name: image-tags
-          path: .
-
-      - name: Set deployment variables
-        id: vars
+      - name: Get CI outputs
+        id: get-vars
         run: |
-          $imageTag = Get-Content .\image-tags.txt
-          $parts = $imageTag -split ':'
-          $IMAGE = $parts[0]
-          $TAG_SHA = $parts[1]
-          $nsSecret = "${{ secrets.K8S_NAMESPACE }}"
-          if ([string]::IsNullOrWhiteSpace($nsSecret)) { $nsSecret = "default" }
+          $apiUrl = "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs"
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN" }
+          $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $job = $response.jobs | Where-Object { $_.name -eq "build" }
+          if (-not $job) { Write-Host "Job 'build' not found!"; exit 1 }
+
+          # Extrai outputs da execução anterior
+          $IMAGE = $job.steps.outputs.IMAGE
+          $TAG_SHA = $job.steps.outputs.TAG_SHA
+
+          if (-not $IMAGE -or -not $TAG_SHA) {
+            Write-Host "❌ Não foi possível recuperar IMAGE/TAG_SHA"
+            exit 1
+          }
+
           echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          echo "NAMESPACE=$nsSecret" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -59,36 +61,18 @@ jobs:
           }
           "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Create namespace if not exists
+      - name: Apply manifests
         run: |
-          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
-          kubectl get ns $ns 2>$null
-          if ($LASTEXITCODE -ne 0) { kubectl create ns $ns }
-
-      - name: Apply base manifests
-        run: |
-          $ns = "${{ steps.vars.outputs.NAMESPACE }}"
-          kubectl apply -n $ns -f k8s/service.yaml
-          kubectl apply -n $ns -f k8s/prometheus-deployment.yaml
-          kubectl apply -n $ns -f k8s/grafana-deployment.yaml
-          kubectl apply -n $ns -f k8s/nginx-deployment.yaml
-          kubectl apply -n $ns -f k8s/nginx-service.yaml
-          kubectl apply -n $ns -f k8s/prometheus-config.yaml
-
-      - name: Apply app deployment
-        run: |
-          kubectl apply -n "${{ steps.vars.outputs.NAMESPACE }}" -f k8s/deployment.yaml
+          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
+          kubectl apply -n $ns -f k8s/
 
       - name: Update app image
         run: |
-          $image = "${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}"
-          kubectl set image deployment/monitor monitor=$image -n "${{ steps.vars.outputs.NAMESPACE }}"
+          $image = "${{ steps.get-vars.outputs.IMAGE }}:${{ steps.get-vars.outputs.TAG_SHA }}"
+          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
+          kubectl set image deployment/monitor monitor=$image -n $ns
 
       - name: Wait rollout
         run: |
-          kubectl rollout status deployment/monitor -n "${{ steps.vars.outputs.NAMESPACE }}" --timeout=120s
-
-      - name: Show services
-        run: |
-          kubectl get svc -n "${{ steps.vars.outputs.NAMESPACE }}"
-          kubectl get pods -o wide -n "${{ steps.vars.outputs.NAMESPACE }}"
+          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
+          kubectl rollout status deployment/monitor -n $ns --timeout=120s

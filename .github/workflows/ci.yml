@@ -16,6 +16,10 @@ jobs:
       run:
         shell: powershell
 
+    outputs:
+      IMAGE: ${{ steps.build.outputs.IMAGE }}
+      TAG_SHA: ${{ steps.build.outputs.TAG_SHA }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,9 +44,6 @@ jobs:
           $IMAGE = "jlkarpyn/projeto"
           echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          # salva arquivo de tags para o CD
-          "${IMAGE}:${TAG_SHA}" | Out-File -FilePath image-tags.txt
-
 
       - name: Log in to DockerHub
         uses: docker/login-action@v2
@@ -55,9 +56,3 @@ jobs:
           docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }} .
           docker push jlkarpyn/projeto:latest
           docker push jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }}
-
-      - name: Upload image tags
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-tags
-          path: image-tags.txt
