@@ -33,11 +33,12 @@ jobs:
         run: npm test
 
       - name: Build Docker image
+        id: build
         run: |
           $FULL_SHA = "${{ github.sha }}"
           $TAG_SHA = $FULL_SHA.Substring(0,7)
-          "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Output "IMAGE=jlkarpyn/projeto" >> $env:GITHUB_ENV
+          Write-Output "TAG_SHA=$TAG_SHA" >> $env:GITHUB_ENV
 
       - name: Log in to DockerHub
         uses: docker/login-action@v2
@@ -47,12 +48,6 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }} .
+          docker build -t jlkarpyn/projeto:latest -t jlkarpyn/projeto:${{ env.TAG_SHA }} .
           docker push jlkarpyn/projeto:latest
-          docker push jlkarpyn/projeto:${{ steps.build.outputs.TAG_SHA }}
-
-      - name: Upload image tags
-        uses: actions/upload-artifact@v3
-        with:
-          name: image-tags
-          path: ${{ github.workspace }}/image-tags.txt
+          docker push jlkarpyn/projeto:${{ env.TAG_SHA }}
