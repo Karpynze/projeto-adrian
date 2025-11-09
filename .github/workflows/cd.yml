@@ -1,4 +1,4 @@
-name: CD - Deploy to Minikube
+name: CD - Deploy to Kubernetes
 
 on:
   workflow_run:
