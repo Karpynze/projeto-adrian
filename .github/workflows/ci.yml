@@ -41,7 +41,8 @@ jobs:
           echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           # salva arquivo de tags para o CD
-          "$IMAGE:$TAG_SHA" | Out-File -FilePath image-tags.txt
+          "${IMAGE}:${TAG_SHA}" | Out-File -FilePath image-tags.txt
+
 
       - name: Log in to DockerHub
         uses: docker/login-action@v2
