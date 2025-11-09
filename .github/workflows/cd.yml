@@ -47,7 +47,7 @@ jobs:
 
           echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          echo "IMAGE e TAG capturados com sucesso: $IMAGE:$TAG_SHA"
+          echo "IMAGE e TAG capturados com sucesso: ${IMAGE}:${TAG_SHA}"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
