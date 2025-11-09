@@ -3,7 +3,7 @@ name: CD - Deploy to Kubernetes
 on:
   workflow_run:
     workflows: ["CI - Build & Push Docker"]
-    types: [completed]
+    types: ["completed"]
 
 permissions:
   contents: read
@@ -21,26 +21,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 🔑 Busca as variáveis diretamente da execução do CI (sem artifact)
       - name: Get CI outputs
         id: get-vars
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          Write-Host "Buscando outputs do workflow CI no GitHub API..."
           $apiUrl = "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs"
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN" }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; "Accept" = "application/vnd.github+json" }
           $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-          $job = $response.jobs | Where-Object { $_.name -eq "build" }
-          if (-not $job) { Write-Host "Job 'build' not found!"; exit 1 }
 
-          # Extrai outputs da execução anterior
-          $IMAGE = $job.steps.outputs.IMAGE
-          $TAG_SHA = $job.steps.outputs.TAG_SHA
+          $job = $response.jobs | Where-Object { $_.name -like "*Build*" }
+          if (-not $job) { throw "Não foi possível encontrar o job de build no workflow anterior." }
 
-          if (-not $IMAGE -or -not $TAG_SHA) {
-            Write-Host "❌ Não foi possível recuperar IMAGE/TAG_SHA"
-            exit 1
-          }
+          $logUrl = $job.url + "/logs"
+          Write-Host "Baixando logs de $logUrl"
+          $logResponse = Invoke-RestMethod -Uri $logUrl -Headers $headers -Method Get
+
+          $matches = [regex]::Matches($logResponse, "IMAGE=(?<image>[\w\/\-]+)\s+TAG_SHA=(?<tag>[a-f0-9]{7})")
+          if ($matches.Count -eq 0) { throw "Não foi possível encontrar IMAGE e TAG_SHA nos logs do CI." }
+
+          $IMAGE = $matches[0].Groups["image"].Value
+          $TAG_SHA = $matches[0].Groups["tag"].Value
 
           echo "IMAGE=$IMAGE" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           echo "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "IMAGE e TAG capturados com sucesso: $IMAGE:$TAG_SHA"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -61,18 +68,46 @@ jobs:
           }
           "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Apply manifests
+      - name: Create namespace if not exists
         run: |
-          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
-          kubectl apply -n $ns -f k8s/
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
+          kubectl get ns $ns 2>$null
+          if ($LASTEXITCODE -ne 0) { kubectl create ns $ns }
+
+      - name: Apply base manifests
+        run: |
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
+          kubectl apply -n $ns -f k8s/service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-deployment.yaml
+          kubectl apply -n $ns -f k8s/grafana-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-deployment.yaml
+          kubectl apply -n $ns -f k8s/nginx-service.yaml
+          kubectl apply -n $ns -f k8s/prometheus-config.yaml
+
+      - name: Apply app deployment
+        run: |
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
+          kubectl apply -n $ns -f k8s/deployment.yaml
 
       - name: Update app image
         run: |
           $image = "${{ steps.get-vars.outputs.IMAGE }}:${{ steps.get-vars.outputs.TAG_SHA }}"
-          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
           kubectl set image deployment/monitor monitor=$image -n $ns
 
       - name: Wait rollout
         run: |
-          $ns = "${{ secrets.K8S_NAMESPACE || 'default' }}"
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
           kubectl rollout status deployment/monitor -n $ns --timeout=120s
+
+      - name: Show services
+        run: |
+          $ns = "${{ secrets.K8S_NAMESPACE }}"
+          if ([string]::IsNullOrWhiteSpace($ns)) { $ns = "default" }
+          kubectl get svc -n $ns
+          kubectl get pods -o wide -n $ns
