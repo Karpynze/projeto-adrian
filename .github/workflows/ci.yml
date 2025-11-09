@@ -39,6 +39,8 @@ jobs:
           $TAG_SHA = $FULL_SHA.Substring(0,7)
           "IMAGE=jlkarpyn/projeto" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "TAG_SHA=$TAG_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "IMAGE=jlkarpyn/projeto" > image-info.txt
+          echo "TAG_SHA=$TAG_SHA" >> image-info.txt
 
       - name: Log in to DockerHub
         uses: docker/login-action@v3
@@ -52,15 +54,8 @@ jobs:
           docker push ${{ steps.vars.outputs.IMAGE }}:latest
           docker push ${{ steps.vars.outputs.IMAGE }}:${{ steps.vars.outputs.TAG_SHA }}
 
-      - name: Save image tag info
-        run: |
-          echo "IMAGE=${{ steps.vars.outputs.IMAGE }}" > image-tags.txt
-          echo "TAG_SHA=${{ steps.vars.outputs.TAG_SHA }}" >> image-tags.txt
-          Write-Host "Conteúdo do image-tags.txt:"
-          Get-Content image-tags.txt
-
-      - name: Upload image tags
+      - name: Upload artifact (image info)
         uses: actions/upload-artifact@v4
         with:
-          name: image-tags
-          path: image-tags.txt
+          name: image-info
+          path: image-info.txt

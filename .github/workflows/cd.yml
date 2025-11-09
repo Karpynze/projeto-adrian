@@ -21,19 +21,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download image tags from CI
+      - name: Download image info artifact
         uses: actions/download-artifact@v4
         with:
-          name: image-tags
+          name: image-info
+          path: ./artifact
 
-      - name: Load deployment variables
+      - name: Load image vars
         id: vars
         run: |
-          $vars = Get-Content "image-tags.txt" | ForEach-Object {
-            $k,$v = $_ -split "=",2
-            Set-Content -Path env:\$k -Value $v
+          $data = Get-Content ./artifact/image-info.txt | ForEach-Object {
+            $parts = $_ -split "="
+            Set-Content -Path env:\$($parts[0]) -Value $parts[1]
           }
-          echo "Usando imagem: $env:IMAGE:$env:TAG_SHA"
+          Write-Host "Imagem: $env:IMAGE"
+          Write-Host "Tag: $env:TAG_SHA"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -54,27 +56,18 @@ jobs:
           }
           "KUBECONFIG=$configPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Apply base manifests
+      - name: Apply manifests
         run: |
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/prometheus-deployment.yaml
-          kubectl apply -f k8s/grafana-deployment.yaml
-          kubectl apply -f k8s/nginx-deployment.yaml
-          kubectl apply -f k8s/nginx-service.yaml
-          kubectl apply -f k8s/prometheus-config.yaml
-
-      - name: Apply app deployment
-        run: kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/
 
       - name: Update app image
         run: |
           kubectl set image deployment/monitor monitor=$env:IMAGE:$env:TAG_SHA
 
       - name: Wait rollout
-        run: |
-          kubectl rollout status deployment/monitor --timeout=120s
+        run: kubectl rollout status deployment/monitor --timeout=120s
 
-      - name: Show services
+      - name: Show resources
         run: |
           kubectl get svc
           kubectl get pods -o wide
